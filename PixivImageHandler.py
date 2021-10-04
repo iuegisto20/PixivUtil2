@@ -178,16 +178,17 @@ def process_image(caller,
             PixivHelper.print_and_log(None, f"Date : {image.worksDateDateTime}")
             PixivHelper.print_and_log(None, f"Mode : {image.imageMode}")
 
-            # get bookmark count
-            if ("%bookmark_count%" in config.filenameFormat or "%image_response_count%" in config.filenameFormat) and image.bookmark_count == -1:
-                PixivHelper.print_and_log(None, "Parsing bookmark page", end=' ')
-                bookmark_url = f'https://www.pixiv.net/bookmark_detail.php?illust_id={image_id}'
-                parse_bookmark_page = PixivBrowserFactory.getBrowser().getPixivPage(bookmark_url)
-                image.ParseBookmarkDetails(parse_bookmark_page)
-                parse_bookmark_page.decompose()
-                del parse_bookmark_page
-                PixivHelper.print_and_log(None, f"Bookmark Count : {image.bookmark_count}")
-                caller.__br__.back()
+            # # get bookmark count
+            # if ("%bookmark_count%" in config.filenameFormat or "%image_response_count%" in config.filenameFormat) and image.bookmark_count == -1:
+            #     PixivHelper.print_and_log(None, "Parsing bookmark page", end=' ')
+            #     bookmark_url = f'https://www.pixiv.net/bookmark_detail.php?illust_id={image_id}'
+            #     parse_bookmark_page = PixivBrowserFactory.getBrowser().getPixivPage(bookmark_url)
+            #     image.ParseBookmarkDetails(parse_bookmark_page)
+            #     parse_bookmark_page.decompose()
+            #     del parse_bookmark_page
+            #     PixivHelper.print_and_log(None, f"Bookmark Count : {image.bookmark_count}")
+            #     caller.__br__.back()
+            PixivHelper.print_and_log(None, f"Bookmark Count : {image.bookmark_count}")
 
             if config.useSuppressTags:
                 for item in caller.__suppressTags:
@@ -272,7 +273,25 @@ def process_image(caller,
                         PixivHelper.print_and_log('error', f'Error when download_image(), giving up url: {img}')
                     PixivHelper.print_and_log(None, '')
 
-            if config.writeImageInfo or config.writeImageJSON:
+                    if config.writeImageXMPPerImage:
+                        filename_info_format = config.filenameInfoFormat or config.filenameFormat
+                        # Issue #575
+                        if image.imageMode == 'manga':
+                            filename_info_format = config.filenameMangaInfoFormat or config.filenameMangaFormat or filename_info_format
+                        info_filename = PixivHelper.make_filename(filename_info_format,
+                                                                image,
+                                                                tagsSeparator=config.tagsSeparator,
+                                                                tagsLimit=config.tagsLimit,
+                                                                fileUrl=url,
+                                                                appendExtension=False,
+                                                                bookmark=bookmark,
+                                                                searchTags=search_tags,
+                                                                useTranslatedTag=config.useTranslatedTag,
+                                                                tagTranslationLocale=config.tagTranslationLocale)
+                        info_filename = PixivHelper.sanitize_filename(info_filename, target_dir)
+                        image.WriteXMP(info_filename + ".xmp")
+
+            if config.writeImageInfo or config.writeImageJSON or config.writeImageXMP:
                 filename_info_format = config.filenameInfoFormat or config.filenameFormat
                 # Issue #575
                 if image.imageMode == 'manga':
@@ -304,6 +323,8 @@ def process_image(caller,
                     # trim _pXXX
                     json_filename = re.sub(r'_p?\d+$', '', json_filename)
                     image.WriteSeriesData(image.seriesNavData['seriesId'], caller.__seriesDownloaded, json_filename + ".json")
+                if config.writeImageXMP and not config.writeImageXMPPerImage:
+                    image.WriteXMP(info_filename + ".xmp")
 
             if image.imageMode == 'ugoira_view':
                 if config.writeUgoiraInfo:
@@ -365,8 +386,7 @@ def process_manga_series(caller,
                          manga_series_id: int,
                          start_page: int = 1,
                          end_page: int = 0,
-                         notifier=None,
-                         job_option=None):
+                         notifier=None):
     if notifier is None:
         notifier = PixivHelper.dummy_notifier
     try:
@@ -395,7 +415,6 @@ def process_manga_series(caller,
                                        bookmark_count=-1,
                                        image_response_count=-1,
                                        notifier=notifier,
-                                       job_option=job_option,
                                        useblacklist=True,
                                        manga_series_order=order,
                                        manga_series_parent=manga_series)

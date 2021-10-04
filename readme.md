@@ -1,6 +1,6 @@
 # Requirements:
 - Running from Windows binary:
-  - minimum Windows 7 SP1 with latest updates installed.
+  - minimum Windows 10 with latest updates installed.
 
 - Running from source code:
   - Python 3.8.0+ (https://www.python.org/)
@@ -9,6 +9,7 @@
 
 - Dependent software
   - FFmpeg (https://www.ffmpeg.org/) - used for converting ugoira to video.
+  - Exiv2 (https://exiv2.org/) - used for writing XMP metadata (if enabled).
 
 # Capabilities:
 - Download by member_id
@@ -146,6 +147,10 @@ Q9. The downloaded images are corrupted, how to redownload it again?
       
 Q10. I got this error またはメールアドレス、パスワードが正しいかチェックしてください。
     - Use your email address for the username, or check your password in config.ini
+
+Q11. Older windows support (e.g. Win7)?
+    - You can try to run from source code with the latest supported python 3.x.
+      See the instruction here: https://github.com/Nandaka/PixivUtil2/wiki/IDE-Enviroment-(Windows)
 
 ```
 ## B.Bugs/Source Code/Supports
@@ -414,6 +419,9 @@ Please refer run with `--help` for latest information.
 - checkNewVersion
 
   Set to `True` to check new releases in github.
+- notifyBetaVersion
+
+  Set to `False` to ignore beta releases.
 - openNewVersion
 
   Set to `False` to disable opening new releases in browser.
@@ -506,6 +514,12 @@ Please refer run with `--help` for latest information.
 
   Set to `True` to export the series information to JSON.
   The filename is following `filenameSeriesJSON` + .json.
+- writeImageXMP
+
+  Set to `True` to export the image information to a .XMP sidecar file, this does not add XMP metadata to the image header.
+- writeImageXMPPerImage
+
+  Set to `True` to export the image information to a .XMP sidecar file, one per image in the album. The data contained within the file is the same but some software requires matching file names to detect the metadata. If set to `True`, then `writeImageXMP` is ignored.
 - verifyimage
 
   Do image and zip checking after download. Set the value to `True` to enable.
@@ -672,6 +686,10 @@ Please refer run with `--help` for latest information.
 - filenameFormatSketch
 
   Similar to filename format, but for Pixiv Sketch.
+- customBadChars
+
+  For sanitizing filenames with custom rules. Supports regular expressions.
+  For detailed syntax, please refer to 'Bad chars' section.
 
 # Filename Format Syntax
 Available for filenameFormat, filenameMangaFormat, avatarNameFormat, filenameInfoFormat,
@@ -833,7 +851,7 @@ http://www.pixiv.net/member_illust.php?id=123456
 - Currently available syntaxes are:
 ```
 -> %coverImage%
-   A 'div' token with its 'class' set to 'cover', and a child 'img' token with 
+   A 'div' tag with its 'class' set to 'cover', and a child 'img' tag with 
    the url to the cover image as its 'src' attribute.
 -> %coverImageUrl%
    Simply the url to the cover image in clear text.
@@ -845,23 +863,64 @@ http://www.pixiv.net/member_illust.php?id=123456
    Published date of the post in clear text.
 -> %body_text(article)%
    This works for article type posts only.
-   A 'div' token with its 'class' set to 'article', and the post's content,
+   A 'div' tag with its 'class' set to 'article', and the post's content,
    which is already formatted HTML if the post is article, as its inner text.
 -> %images(non-article)%
    This works for none-article type posts only.
-   A 'div' token with its 'class' set to 'non-article images', and 'a' tokens
+   A 'div' tag with its 'class' set to 'non-article images', and 'a' tags
    of all files in the post as its children tokens.
-   For each 'a' token, its 'href' would be url to the file, and the inner text
-   would be an 'img' token with its 'src' set to the url to the file if the
+   For each 'a' tag, its 'href' would be url to the file, and the inner text
+   would be an 'img' tag with its 'src' set to the url to the file if the
    file's extension is 'jpg', 'jpeg', 'png' or 'bmp'. Otherwise the inner text
    would simply be the url to the file.
 -> %text(non-article)%
    This works for none-article type posts only.
-   A 'div' token with its 'class' set to 'non-article text' and all paragraphs
-   of text put in 'p' tokens as its children tokens.
+   A 'div' tag with its 'class' set to 'non-article text' and all paragraphs
+   of text put in 'p' tags as its children tokens.
 ```
-- If there is a 'div' token with 'root' in its 'class' in the template, 'article' or 
+- If there is a 'div' tag with 'main' in its 'class' in the template, 'article' or 
   'non-article' would be appended to its 'class' depending on the type of the post.
+
+# Bad chars
+- Originally for removing single bad chars for use between different OSs.
+- Now also supports strings and regular expressions.
+- The value set in option `customBadChars` would be parsed from left to right.
+- Currently available syntaxes are:
+```
+-> %replace<default>(your_default_replace_with)%
+   Use this syntax to define default value to replace with.
+   If this syntax gets used multiple times in the option value, the first value would be used.
+   If this value is not set, "_" would be used.
+-> %pattern<you_group_name>(your_pattern)%
+-> %replace<you_group_name>(your_replace_with)%
+   Use these two syntaxes to set groups of rules. Supports regular expression.
+   You should not use "default" as group names, otherwise the first replace would
+   be parsed as default value to replace with, while the others would be ignored.
+   Groups with no "pattern" would be ignored.
+   Groups with no "replace" use default value.
+   If multiple "pattern"s or "replace"s share the same group name, the last value set
+   would be used.
+```
+- Chars/string not wrapped with syntaxes above would be considered single chars
+  to be replaced with global replacement char/string, "_" if unset.
+- When configuration file gets written to file, `customBadChars` would be
+  replaced with parsed valid value. Single chars would be placed first, followed by
+  `%replace<default>(your_default_replace_with)%`, and each group.
+- Examples:
+```
+# If you just want to replace some single chars with "_"
+\@[]
+# If you want to replace them with "@":
+\@[]%replace<default>(@)%
+# If you want to replace certain words:
+# This example would first replace all "maze" with "labyrinth",
+# then all "labyrinth" with "nevermind"
+%pattern<1>(maze)%%replace<1>(labyrinth)%%pattern<2>(labyrinth)%%replace<2>(nevermind)%
+# If you want to replace characters within certain unicode range,
+# then remove all continuous "_"s with a single "_":
+%pattern<unicode>([\U0001d400-\U0001ffff])%%pattern<1>(_+)%%replace<1>(_)%
+```
+
 
 # Credits/Contributor
 - Nandaka (Main Developer) - https://nandaka.devnull.zone
@@ -892,6 +951,7 @@ http://www.pixiv.net/member_illust.php?id=123456
 - fireattack
 - Jared Shields
 - DenDen047
+- Baa
 
 ** If I forget someone, please send me a pull request with the commit/merge id.
 

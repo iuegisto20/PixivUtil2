@@ -23,6 +23,8 @@ import urllib.parse
 import webbrowser
 import zipfile
 from datetime import date, datetime, timedelta, tzinfo
+from hashlib import md5, sha1, sha256
+from mmap import ACCESS_READ, mmap
 from pathlib import Path
 from typing import Union
 
@@ -30,6 +32,7 @@ import mechanize
 from colorama import Fore, Style
 
 import PixivConstant
+import PixivException
 from PixivArtist import PixivArtist
 from PixivImage import PixivImage
 from PixivModelFanbox import FanboxArtist, FanboxPost
@@ -53,6 +56,8 @@ else:
     __badchars__ = re.compile(r'''
     ^$
     ''', re.VERBOSE)
+
+__custom_sanitizer_dic__ = {}
 
 
 def set_config(config):
@@ -92,6 +97,9 @@ def sanitize_filename(name, rootDir=None):
     name = html.unescape(name)
 
     name = __badchars__.sub("_", name)
+
+    for key, value in __custom_sanitizer_dic__.items():
+        name = value["regex"].sub(value["replace"], name)
 
     # Remove unicode control characters
     name = "".join(c for c in name if unicodedata.category(c) != "Cc")
@@ -169,6 +177,13 @@ def make_filename(nameFormat: str,
         imageExtension = splittedUrl[1]
         imageExtension = imageExtension.split('?')[0]
 
+    # Issue #940
+    if nameFormat.find('%force_extension') > -1:
+        to_replace_ext = re.findall("(%force_extension{.*}%)", nameFormat)
+        forced_ext = re.findall("{(.*)}", to_replace_ext[0])
+        nameFormat = nameFormat.replace(to_replace_ext[0], "")
+        imageExtension = forced_ext[0]
+
     # artist related
     nameFormat = nameFormat.replace('%artist%', replace_path_separator(artistInfo.artistName))
     nameFormat = nameFormat.replace('%member_id%', str(artistInfo.artistId))
@@ -208,6 +223,7 @@ def make_filename(nameFormat: str,
     page_number = ''
     page_big = ''
     if imageInfo.imageMode == 'manga':
+        # not working for fanbox due to url filename doesn't have _p0
         idx = __re_manga_index.findall(fileUrl)
         if len(idx) > 0:
             page_index = idx[0]
@@ -273,8 +289,11 @@ def make_filename(nameFormat: str,
 
     if imageInfo.bookmark_count > 0:
         nameFormat = nameFormat.replace('%bookmark_count%', str(imageInfo.bookmark_count))
+        if '%bookmarks_group%' in nameFormat:
+            nameFormat = nameFormat.replace('%bookmarks_group%', calculate_group(imageInfo.bookmark_count))
     else:
         nameFormat = nameFormat.replace('%bookmark_count%', '')
+        nameFormat = nameFormat.replace('%bookmarks_group%', '')
 
     if imageInfo.image_response_count > 0:
         nameFormat = nameFormat.replace('%image_response_count%', str(imageInfo.image_response_count))
@@ -285,10 +304,50 @@ def make_filename(nameFormat: str,
     while nameFormat.find('  ') > -1:
         nameFormat = nameFormat.replace('  ', ' ')
 
+    # clean up double slash
+    while nameFormat.find('//') > -1 or nameFormat.find('\\\\') > -1:
+        nameFormat = nameFormat.replace('//', '/').replace('\\\\', '\\')
+
     if appendExtension:
         nameFormat = nameFormat.strip() + '.' + imageExtension
 
     return nameFormat.strip()
+
+
+# Issue #956
+def get_hash(path: str, method="md5") -> str:
+    hash_str = ""
+    hash_method = None
+    if method == "md5":
+        hash_method = md5
+    elif method == "sha1":
+        hash_method = sha1
+    elif method == "sha256":
+        hash_method = sha256
+    else:
+        raise PixivException(msg=f"Invalid hash function {method}")
+
+    with open(path) as file, mmap(file.fileno(), 0, access=ACCESS_READ) as file:
+        hash_str = hash_method(file).hexdigest()
+    return hash_str
+
+
+def calculate_group(count):
+    # follow rules from https://dic.pixiv.net/a/users%E5%85%A5%E3%82%8A
+    if count >= 100 and count < 250:
+        return '100'
+    elif count >= 250 and count < 500:
+        return '250'
+    elif count >= 500 and count < 1000:
+        return '500'
+    elif count >= 1000 and count < 5000:
+        return '1000'
+    elif count >= 5000 and count < 10000:
+        return '5000'
+    elif count >= 10000:
+        return '10000'
+    else:
+        return ''
 
 
 def safePrint(msg, newline=True, end=None):
@@ -314,7 +373,8 @@ def set_console_title(title):
         except FileNotFoundError:
             print_and_log("error", f"Cannot set console title to {title}")
     else:
-        sys.stdout.write(f"\x1b]2;{title}\x07")
+        sys.stdout.write(f'\33]0;{title}\a')
+        sys.stdout.flush()
 
 
 def clearScreen():
@@ -827,7 +887,7 @@ def generate_search_tag_url(tags,
     return url
 
 
-def write_url_in_description(image, blacklistRegex, filenamePattern):
+def write_url_in_description(image: Union[PixivImage, FanboxPost], blacklistRegex, filenamePattern):
     valid_url = list()
     if len(image.descriptionUrlList) > 0:
         # filter first
@@ -846,7 +906,13 @@ def write_url_in_description(image, blacklistRegex, filenamePattern):
         filename = date.today().strftime(filenamePattern) + ".txt"
         makeSubdirs(filename)
         info = codecs.open(filename, 'a', encoding='utf-8')
-        info.write("#" + str(image.imageId) + "\r\n")
+
+        # implement #1002
+        if isinstance(image, FanboxPost):
+            info.write(f"# Fanbox Author ID: {image.parent.artistId} Post ID: {image.imageId}\r\n")
+        else:
+            info.write(f"# Pixiv Author ID: {image.artist.artistId} Image ID: {image.imageId}\r\n")
+
         for link in valid_url:
             info.write(link + "\r\n")
         info.close()
@@ -855,11 +921,13 @@ def write_url_in_description(image, blacklistRegex, filenamePattern):
 def ugoira2gif(ugoira_file, exportname, fmt='gif', image=None):
     print_and_log('info', 'processing ugoira to animated gif...')
     # Issue #802 use ffmpeg to convert to gif
+    if len(_config.gifParam) == 0:
+        _config.gifParam = "-filter_complex \"[0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle\""
     ugoira2webm(ugoira_file,
                 exportname,
                 ffmpeg=_config.ffmpeg,
                 codec=None,
-                param="-filter_complex \"[0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle\"",
+                param=_config.gifParam,
                 extension="gif",
                 image=image)
 
@@ -867,11 +935,13 @@ def ugoira2gif(ugoira_file, exportname, fmt='gif', image=None):
 def ugoira2apng(ugoira_file, exportname, image=None):
     print_and_log('info', 'processing ugoira to apng...')
     # fix #796 convert apng using ffmpeg
+    if len(_config.apngParam) == 0:
+        _config.apngParam = "-vf \"setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6\" -plays 0"
     ugoira2webm(ugoira_file,
                 exportname,
                 ffmpeg=_config.ffmpeg,
                 codec="apng",
-                param="-vf \"setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6\" -plays 0",
+                param=_config.apngParam,
                 extension="apng",
                 image=image)
 
@@ -1003,6 +1073,8 @@ def check_version(br, config=None):
     latest_version_int = int(latest_version_full[0][0])
     curr_version_int = int(re.findall(r"(\d+)", PixivConstant.PIXIVUTIL_VERSION)[0])
     is_beta = True if latest_version_full[0][1].find("beta") >= 0 else False
+    if is_beta and not config.notifyBetaVersion:
+        return
     url = "https://github.com/Nandaka/PixivUtil2/releases"
     if latest_version_int > curr_version_int:
         if is_beta:
@@ -1135,3 +1207,47 @@ class LocalUTCOffsetTimezone(tzinfo):
     def getTimeZoneOffset(self):
         offset = time.timezone if (time.localtime().tm_isdst == 0) else time.altzone
         return offset / 60 / 60 * -1
+
+
+def parse_custom_sanitizer(bad_char_string):
+    __custom_sanitizer_dic__.clear()
+    default_replacement = "_"
+    clean_string = ""
+
+    temp_string = bad_char_string
+    group_dic = {}
+
+    match = re.search(r"%replace<default>\((.+?)\)%", temp_string)
+    if match:
+        temp_string = temp_string.replace(match.group(), "")
+        default_replacement = match.group(1)
+        clean_string += f"%replace<default>({default_replacement})%"
+
+    for match in re.finditer(r"%(pattern|replace)<(.+?)>\((.*?)\)%", temp_string):
+        temp_string = temp_string.replace(match.group(), "")
+        kind = match.group(1)
+        group_name = match.group(2)
+        content = match.group(3)
+        if group_name == "default":
+            continue
+        if group_name not in group_dic:
+            group_dic[group_name] = {"pattern": None}
+        group_dic[group_name][kind] = content
+
+    if temp_string:
+        temp_string = "".join(sorted(set(temp_string)))
+        clean_string = temp_string + clean_string
+        temp_string = "|".join([c if c not in r"$()*+.[]?^\{}|" else rf"\{c}" for c in temp_string])
+        __custom_sanitizer_dic__["default"] = {"regex": re.compile(temp_string), "replace": default_replacement}
+
+    for key, value in group_dic.items():
+        if not value["pattern"]:
+            continue
+        __custom_sanitizer_dic__[key] = {
+            "regex": re.compile(value["pattern"]),
+            "replace": value.get("replace", default_replacement)
+        }
+        for k, v in value.items():
+            clean_string += f"%{k}<{key}>({v})%"
+
+    return clean_string

@@ -60,6 +60,7 @@ class PixivConfig():
         ConfigItem("Network", "retryWait", 5),
         ConfigItem("Network", "downloadDelay", 2),
         ConfigItem("Network", "checkNewVersion", True),
+        ConfigItem("Network", "notifyBetaVersion", True),
         ConfigItem("Network", "openNewVersion", True),
         ConfigItem("Network", "enableSSLVerification", True),
 
@@ -88,8 +89,11 @@ class PixivConfig():
         ConfigItem("Settings", "writeImageInfo", False),
         ConfigItem("Settings", "writeImageJSON", False),
         ConfigItem("Settings", "writeRawJSON", False),
-        ConfigItem("Settings", "RawJSONFilter", "id,title,description,alt,userIllusts,storableTags,zoneConfig,extraData,comicPromotion,fanboxPromotion"),
+        ConfigItem("Settings", "RawJSONFilter",
+                   "id,title,description,alt,userIllusts,storableTags,zoneConfig,extraData,comicPromotion,fanboxPromotion"),
         ConfigItem("Settings", "includeSeriesJSON", False),
+        ConfigItem("Settings", "writeImageXMP", False),
+        ConfigItem("Settings", "writeImageXMPPerImage", False),
         ConfigItem("Settings", "verifyImage", False),
         ConfigItem("Settings", "writeUrlInDescription", False),
         ConfigItem("Settings", "urlBlacklistRegex", ""),
@@ -117,6 +121,9 @@ class PixivConfig():
                    restriction=lambda x: x is not None and len(x) > 0),
         ConfigItem("Filename", "filenameFormatSketch", "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
                    restriction=lambda x: x is not None and len(x) > 0),
+        ConfigItem("Filename", "filenameFormatNovel",
+                   "%artist% (%member_id%)" + os.sep + "%manga_series_id% %manga_series_order% %urlFilename% - %title%",
+                   restriction=lambda x: x is not None and len(x) > 0),
         ConfigItem("Filename", "avatarNameFormat", ""),
         ConfigItem("Filename", "backgroundNameFormat", ""),
         ConfigItem("Filename", "tagsSeparator", ", "),
@@ -125,6 +132,7 @@ class PixivConfig():
         ConfigItem("Filename", "urlDumpFilename", "url_list_%Y%m%d"),
         ConfigItem("Filename", "useTranslatedTag", False),
         ConfigItem("Filename", "tagTranslationLocale", "en"),
+        ConfigItem("Filename", "customBadChars", "", followup=PixivHelper.parse_custom_sanitizer),
 
         ConfigItem("Authentication", "username", ""),
         ConfigItem("Authentication", "password", ""),
@@ -138,14 +146,14 @@ class PixivConfig():
         ConfigItem("Pixiv", "autoAddMember", False),
 
         ConfigItem("FANBOX", "filenameFormatFanboxCover",
-                   "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
+                   "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
                    restriction=lambda x: x is not None and len(x) > 0),
         ConfigItem("FANBOX", "filenameFormatFanboxContent",
-                   "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
+                   "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
                    restriction=lambda x: x is not None and len(x) > 0 and (x.find("%urlFilename%") >= 0 or (x.find('%page_index%') >= 0 or x.find('%page_number%') >= 0)),
                    error_message="At least %urlFilename%, %page_index%, or %page_number% is required in"),
         ConfigItem("FANBOX", "filenameFormatFanboxInfo",
-                   "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
+                   "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
                    restriction=lambda x: x is not None and len(x) > 0),
         ConfigItem("FANBOX", "writeHtml", False),
         ConfigItem("FANBOX", "minTextLengthForNonArticle", 45),
@@ -162,6 +170,9 @@ class PixivConfig():
         ConfigItem("FFmpeg", "ffmpegParam", "-lossless 1 -vsync 2 -r 999 -pix_fmt yuv420p"),
         ConfigItem("FFmpeg", "webpCodec", "libwebp"),
         ConfigItem("FFmpeg", "webpParam", "-lossless 0 -q:v 90 -loop 0 -vsync 2 -r 999"),
+        ConfigItem("FFmpeg", "gifParam",
+                   "-filter_complex \"[0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle\""),
+        ConfigItem("FFmpeg", "apngParam", "-vf \"setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6\" -plays 0"),
 
         ConfigItem("Ugoira", "writeUgoiraInfo", False),
         ConfigItem("Ugoira", "createUgoira", False),
@@ -188,13 +199,15 @@ class PixivConfig():
         ConfigItem("DownloadControl", "downloadResized", False),
         ConfigItem("DownloadControl", "checkLastModified", True),
         ConfigItem("DownloadControl", "skipUnknownSize", False),
+        ConfigItem("DownloadControl", "enablePostProcessing", False),
+        ConfigItem("DownloadControl", "postProcessingCmd", ""),
     ]
 
     proxy = {"http": "", "https": "", }
 
     def __init__(self):
         for item in self.__items:
-            setattr(self, item.option, item.default)
+            setattr(self, item.option, item.process_value(item.default))
         self.proxy = {'http': self.proxyAddress, 'https': self.proxyAddress}
 
     def loadConfig(self, path=None):

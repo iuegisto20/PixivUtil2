@@ -8,6 +8,7 @@ import PixivDownloadHandler
 import PixivHelper
 import PixivModelFanbox
 from PixivException import PixivException
+import PixivArtistHandler
 
 
 def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefix=""):
@@ -18,15 +19,33 @@ def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefi
     try:
         artist = br.fanboxGetArtistById(artist_id)
     except PixivException as pex:
-        PixivHelper.print_and_log("error", "Error gettting FANBOX artist by id: {0} ==> {1}".format(artist_id, pex.message))
-        return
+        PixivHelper.print_and_log("error", f"Error getting FANBOX artist by id: {artist_id} ==> {pex.message}")
+        if pex.errorCode != PixivException.USER_ID_SUSPENDED:
+            return
+        artist = br.fanboxGetArtistById(artist_id, for_suspended=True)
+
+        formats = f"{config.filenameFormatFanboxCover}{config.filenameFormatFanboxContent}{config.filenameFormatFanboxInfo}"
+        name_flag = "%artist%" in formats
+        token_flag = "%member_token%" in formats
+        if name_flag or token_flag:
+            result = caller.__dbManager__.selectMemberByMemberId(artist.artistId)
+            if result:
+                artist.artistName = result[1]
+                artist.artistToken = result[7]
+                PixivHelper.print_and_log("info", f"Using saved artist name and token from db: {artist.artistName}, {artist.artistToken}")
+            else:
+                PixivHelper.print_and_log("warn", "Artist name or token found in FANBOX filename formats, but not in db.")
+                if name_flag:
+                    artist.artistName = input(f"Please input %artist% for {artist_id}: ").strip()
+                if token_flag:
+                    artist.artistToken = input(f"Please input %member_token% for {artist_id}: ").strip()
 
     current_page = 1
     next_url = None
     image_count = 1
     while True:
         PixivHelper.print_and_log("info", "Processing {0}, page {1}".format(artist, current_page))
-        caller.set_console_title(f"{title_prefix} FANBOX Artist {artist}, page {current_page}")
+        caller.set_console_title(f"{title_prefix} {artist}, page {current_page}")
         try:
             posts = br.fanboxGetPostsFromArtist(artist, next_url)
         except PixivException as pex:
@@ -55,7 +74,7 @@ def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefi
             PixivHelper.print_and_log("info", "No more post for {0}".format(artist))
             break
         current_page += 1
-        if end_page > 0 and current_page > end_page:
+        if 0 < end_page < current_page:
             PixivHelper.print_and_log("info", "Reaching page limit for {0}, limit {1}".format(artist, end_page))
             break
         next_url = artist.nextUrl
@@ -64,7 +83,7 @@ def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefi
             break
 
 
-def process_fanbox_post(caller, config, post, artist):
+def process_fanbox_post(caller, config, post: PixivModelFanbox.FanboxPost, artist):
     # caller function/method
     # TODO: ideally to be removed or passed as argument
     db = caller.__dbManager__
@@ -88,7 +107,7 @@ def process_fanbox_post(caller, config, post, artist):
 
         if ((not post.is_restricted) or config.downloadCoverWhenRestricted) and (not flag_processed) and config.downloadCover:
             # cover image
-            if post.coverImageUrl is not None:
+            if post.coverImageUrl:
                 # fake the image_url for filename compatibility, add post id and pagenum
                 fake_image_url = post.coverImageUrl.replace("{0}/cover/".format(post.imageId),
                                                             "{0}_".format(post.imageId))
@@ -204,8 +223,29 @@ def process_fanbox_post(caller, config, post, artist):
                     html_template = reader.read()
                     reader.close()
                 post.WriteHtml(html_template, config.useAbsolutePathsInHtml, filename + ".html")
+
+        if config.writeUrlInDescription:
+            PixivHelper.write_url_in_description(post, config.urlBlacklistRegex, config.urlDumpFilename)
     finally:
         if len(post_files) > 0:
             db.insertPostImages(post_files)
 
     db.updatePostUpdateDate(post.imageId, post.updatedDate)
+
+
+def process_pixiv_by_fanbox_id(caller, config, artist_id, start_page=1, end_page=0, tags=None, title_prefix=""):
+    # Implement #1005
+    config.loadConfig(path=caller.configfile)
+    br = PixivBrowserFactory.getBrowser()
+
+    caller.set_console_title(title_prefix)
+    artist = br.fanboxGetArtistById(artist_id)
+    PixivArtistHandler.process_member(caller,
+                                      config,
+                                      artist.artistId,
+                                      user_dir='',
+                                      page=start_page,
+                                      end_page=end_page,
+                                      bookmark=False,
+                                      tags=tags,
+                                      title_prefix=title_prefix)

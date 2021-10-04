@@ -11,7 +11,7 @@ from collections import OrderedDict
 from datetime import datetime
 from typing import List, Tuple
 
-import demjson
+import demjson3
 from bs4 import BeautifulSoup
 
 import datetime_z
@@ -157,7 +157,7 @@ class PixivImage (object):
         key = list(page["illust"].keys())[0]
         assert(str(key) == str(self.imageId))
         root = page["illust"][key]
-        #save the JSON if writeRawJSON is enabled
+        # save the JSON if writeRawJSON is enabled
         if writeRawJSON:
             self.rawJSON = root
 
@@ -405,7 +405,7 @@ class PixivImage (object):
             info = codecs.open(str(self.imageId) + ".json", 'w', encoding='utf-8')
             PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.json", filename, self.imageId)
         if self.rawJSON:
-            jsonInfo=self.rawJSON
+            jsonInfo = self.rawJSON
             if JSONfilter:
                 for x in JSONfilter.split(","):
                     del jsonInfo[x.strip()]
@@ -437,6 +437,61 @@ class PixivImage (object):
             info.write(json.dumps(jsonInfo, ensure_ascii=False, indent=4))
             info.close()
 
+    def WriteXMP(self, filename):
+        import pyexiv2
+        info = None
+        try:
+            # Issue #421 ensure subdir exists.
+            PixivHelper.makeSubdirs(filename)
+
+            info = codecs.open(filename, 'wb', encoding='utf-8')
+        except IOError:
+            info = codecs.open(str(self.imageId) + ".xmp", 'wb', encoding='utf-8')
+            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.xmp", filename, str(self.imageId))
+
+        # Create the XMP file template.
+        info.write('<?xpacket begin="" id=""?>\n<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 4.4.0-Exiv2">\n</x:xmpmeta>\n<?xpacket end="w"?>\n')
+        info.close()
+
+        # Reopen file using pyexiv2
+        info = pyexiv2.ImageMetadata(filename)
+        info.read()
+
+        info['Xmp.dc.creator'] = [self.artist.artistName]
+        # Check array isn't empty.
+        if self.imageTitle:
+            info['Xmp.dc.title'] = self.imageTitle
+        # Check array isn't empty.
+        if self.imageCaption:
+            info['Xmp.dc.description'] = self.imageCaption
+        # Check array isn't empty.
+        if self.imageTags:
+            info['Xmp.dc.subject'] = self.imageTags
+        info['Xmp.dc.date'] = [self.worksDateDateTime]
+        info['Xmp.dc.source'] = f"http://www.pixiv.net/en/artworks/{self.imageId}"
+        info['Xmp.dc.identifier'] = self.imageId
+
+        # Custom 'pixiv' namespace for non-standard details.
+        pyexiv2.xmp.register_namespace('http://pixiv.com/', 'pixiv')
+
+        info['Xmp.pixiv.artist_id'] = self.artist.artistId
+        info['Xmp.pixiv.image_mode'] = self.imageMode
+        info['Xmp.pixiv.pages'] = self.imageCount
+        info['Xmp.pixiv.resolution'] = self.worksResolution
+        info['Xmp.pixiv.bookmark_count'] = self.bookmark_count
+
+        if self.seriesNavData:
+            info['Xmp.pixiv.series_title'] = self.seriesNavData['title']
+            info['Xmp.pixiv.series_order'] = self.seriesNavData['order']
+            info['Xmp.pixiv.series_id'] = self.seriesNavData['seriesId']
+        if self.ugoira_data:
+            info['Xmp.pixiv.ugoira_data'] = self.ugoira_data
+        if len(self.descriptionUrlList) > 0:
+            info['Xmp.pixiv.urls'] = ", ".join(self.descriptionUrlList)
+
+        info.write()
+        pyexiv2.xmp.closeXmpParser()
+
     def WriteSeriesData(self, seriesId, seriesDownloaded, filename):
         from PixivBrowserFactory import getBrowser
         try:
@@ -446,14 +501,14 @@ class PixivImage (object):
         except IOError:
             outfile = codecs.open("Series " + str(seriesId) + ".json", 'w', encoding='utf-8')
             PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.json", filename, "Series " + str(seriesId) + ".json")
-        receivedJSON = json.loads(getBrowser().getMangaSeries(seriesId,1,returnJSON=True))
+        receivedJSON = json.loads(getBrowser().getMangaSeries(seriesId, 1, returnJSON=True))
         jsondata = receivedJSON["body"]["illustSeries"][0]
         jsondata.update(receivedJSON["body"]["page"])
-        pages = jsondata["total"]//12+2
-        for x in range(2,pages):
-            receivedJSON = json.loads(getBrowser().getMangaSeries(seriesId,x,returnJSON=True))
+        pages = jsondata["total"] // 12 + 2
+        for x in range(2, pages):
+            receivedJSON = json.loads(getBrowser().getMangaSeries(seriesId, x, returnJSON=True))
             jsondata["series"].extend(receivedJSON["body"]["page"]["series"])
-        for x in ["recentUpdatedWorkIds","otherSeriesId","seriesId","isSetCover","firstIllustId","coverImageSl","url"]:
+        for x in ["recentUpdatedWorkIds", "otherSeriesId", "seriesId", "isSetCover", "firstIllustId", "coverImageSl", "url"]:
             del jsondata[x]
         outfile.write(json.dumps(jsondata, ensure_ascii=False))
         outfile.close()
@@ -497,7 +552,7 @@ class PixivImage (object):
         if jss is None or len(jss["content"]) == 0:
             return None  # Possibly error page
 
-        payload = demjson.decode(jss["content"])
+        payload = demjson3.decode(jss["content"])
         return payload
 
 

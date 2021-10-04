@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=C1801, C0330
-import demjson
+import demjson3
 
 import datetime_z
 from PixivImage import PixivTagData
@@ -24,7 +24,7 @@ class SketchArtist(object):
         self._tzInfo = tzInfo
 
         if page is not None:
-            post_json = demjson.decode(page)
+            post_json = demjson3.decode(page)
             self.parse_artist(post_json["data"])
 
     def parse_artist(self, page):
@@ -46,7 +46,7 @@ class SketchArtist(object):
         self.artistAvatar = root["icon"]["photo"]["original"]["url"]
 
     def parse_posts(self, page):
-        post_json = demjson.decode(page)
+        post_json = demjson3.decode(page)
 
         links_root = post_json["_links"]
         if "next" in links_root:
@@ -103,7 +103,7 @@ class SketchPost(object):
         self.dateFormat = dateFormat
 
         if page is not None:
-            post_json = demjson.decode(page)
+            post_json = demjson3.decode(page)
             if artist is None:
                 artist_id = post_json["data"]["item"]["user"]["id"]
                 self.artist = SketchArtist(artist_id, page, tzInfo, dateFormat)
@@ -120,6 +120,11 @@ class SketchPost(object):
         for tag in page["tags"]:
             self.imageTags.append(tag)
             self.tags.append(PixivTagData(tag, None))
+
+        # add R-18 tag if is_r18 = True
+        if "is_r18" in page and page["is_r18"]:
+            self.imageTags.append('R-18')
+            self.tags.append(PixivTagData('R-18', None))
 
         for media in page["media"]:
             self.imageMode = media["type"]
