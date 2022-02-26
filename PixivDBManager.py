@@ -322,7 +322,7 @@ class PixivDBManager(object):
                       (row[0], row[1].strip(), row[2], row[3], row[4], row[5], row[6]))
                 i = i + 1
                 if i == 79:
-                    select = input('Continue [y/n]? ').rstrip("\r")
+                    select = input('Continue [y/n, default is yes]? ').rstrip("\r")
                     if select == 'n':
                         break
                     else:
@@ -347,7 +347,7 @@ class PixivDBManager(object):
                 print('Row count is more than 10000 (actual row count:',
                       str(result[0][0]), ')')
                 print('It may take a while to retrieve the data.')
-                answer = input('Continue [y/n]').rstrip("\r")
+                answer = input('Continue [y/n, default is no]').rstrip("\r")
                 if answer == 'y':
                     c.execute('''SELECT * FROM pixiv_master_image
                                     ORDER BY member_id''')
@@ -828,7 +828,7 @@ class PixivDBManager(object):
     def replaceRootPath(self):
         oldPath = input("Old Path to Replace = ").rstrip("\r")
         print("Replacing " + oldPath + " to " + self.rootDirectory)
-        cont = input("continue[y/n]?").rstrip("\r") or 'n'
+        cont = input("continue[y/n, default is no]?").rstrip("\r") or 'n'
         if cont != "y":
             print("Aborted")
             return
@@ -930,6 +930,19 @@ class PixivDBManager(object):
             self.conn.commit()
         except BaseException:
             print('Error at updatePostUpdateDate():', str(sys.exc_info()))
+            print('failed')
+            raise
+        finally:
+            c.close()
+
+    def selectFanboxImageByImageIdAndPage(self, post_id, page):
+        try:
+            c = self.conn.cursor()
+            c.execute(
+                '''SELECT * FROM fanbox_post_image WHERE post_id = ? AND page = ? ''', (post_id, page))
+            return c.fetchone()
+        except BaseException:
+            print('Error at selectFanboxImageByImageIdAndPage():', str(sys.exc_info()))
             print('failed')
             raise
         finally:
@@ -1069,6 +1082,19 @@ class PixivDBManager(object):
         finally:
             c.close()
 
+    def selectSketchImageByImageIdAndPage(self, post_id, page):
+        try:
+            c = self.conn.cursor()
+            c.execute(
+                '''SELECT * FROM sketch_post_image WHERE post_id = ? AND page = ? ''', (post_id, page))
+            return c.fetchone()
+        except BaseException:
+            print('Error at selectSketchImageByImageIdAndPage():', str(sys.exc_info()))
+            print('failed')
+            raise
+        finally:
+            c.close()
+
     def selectSketchPostByPostId(self, post_id):
         try:
             c = self.conn.cursor()
@@ -1198,7 +1224,7 @@ class PixivDBManager(object):
                 elif selection == '3':
                     filename = input('Filename? ').rstrip("\r")
                     includeArtistToken = input(
-                        'Include Artist Token[y/n]? ').rstrip("\r")
+                        'Include Artist Token[y/n, default is no]? ').rstrip("\r")
                     if includeArtistToken.lower() == 'y':
                         includeArtistToken = True
                     else:

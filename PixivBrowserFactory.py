@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 
 import PixivHelper
 from PixivArtist import PixivArtist
+from PixivBookmark import PixivNewIllustBookmark
 from PixivException import PixivException
 from PixivImage import PixivImage, PixivMangaSeries
 from PixivModelFanbox import FanboxArtist, FanboxPost
@@ -26,6 +27,7 @@ from PixivModelSketch import SketchArtist, SketchPost
 from PixivNovel import MAX_LIMIT, NovelSeries, PixivNovel
 from PixivOAuth import PixivOAuth
 from PixivTags import PixivTags
+from PixivRanking import PixivRanking
 
 defaultCookieJar = None
 defaultConfig = None
@@ -238,26 +240,40 @@ class PixivBrowser(mechanize.Browser):
             throw PixivException as server error
         '''
         url = self.fixUrl(url)
+        retry_count = 0
         while True:
             req = mechanize.Request(url)
             req.add_header('Referer', referer)
 
             read_page = self._get_from_cache(url)
             if read_page is None:
-                try:
-                    temp = self.open_with_retry(req)
-                    read_page = temp.read()
-                    read_page = read_page.decode('utf8')
-                    if enable_cache:
-                        self._put_to_cache(url, read_page)
-                    temp.close()
-                except urllib.error.HTTPError as ex:
-                    if ex.code in [403, 404, 503]:
-                        read_page = ex.read()
-                        raise PixivException(f"Failed to get page: {url} => {ex}", errorCode=PixivException.SERVER_ERROR)
-                    else:
-                        PixivHelper.print_and_log('error', f'Error at getPixivPage(): {sys.exc_info()}')
-                        raise PixivException(f"Failed to get page: {url}", errorCode=PixivException.SERVER_ERROR)
+                while True:
+                    try:
+                        temp = self.open_with_retry(req)
+                        read_page = temp.read()
+                        read_page = read_page.decode('utf8')
+                        if enable_cache:
+                            self._put_to_cache(url, read_page)
+                        temp.close()
+                        break
+                    except urllib.error.HTTPError as ex:
+                        if ex.code in [403, 404, 503]:
+                            read_page = ex.read()
+                            raise PixivException(f"Failed to get page: {url} => {ex}", errorCode=PixivException.SERVER_ERROR)
+                        else:
+                            PixivHelper.print_and_log('error', f'Error at getPixivPage(): {sys.exc_info()}')
+                            raise PixivException(f"Failed to get page: {url}", errorCode=PixivException.SERVER_ERROR)
+                    except BaseException:
+                        exc_value = sys.exc_info()[1]
+                        if retry_count < self._config.retry:
+                            print(exc_value, end=' ')
+                            for t in range(1, self._config.retryWait):
+                                print(t, end=' ')
+                                PixivHelper.print_delay(2)
+                            print('')
+                            retry_count = retry_count + 1
+                        else:
+                            raise PixivException(f"Failed to get page: {url}", errorCode=PixivException.SERVER_ERROR)
 
             if returnParsed:
                 parsedPage = BeautifulSoup(read_page, features="html5lib")
@@ -436,8 +452,7 @@ class PixivBrowser(mechanize.Browser):
                     PixivHelper.print_and_log(
                         'info', 'New FANBOX cookie value: ' + str(cookie.value))
                     self._config.cookieFanbox = cookie.value
-                    self._config.writeConfig(
-                        path=self._config.configFileLocation)
+                    self._config.writeConfig(path=self._config.configFileLocation)
                     break
         else:
             PixivHelper.print_and_log('info', 'Could not update FANBOX cookie string.')
@@ -618,7 +633,8 @@ class PixivBrowser(mechanize.Browser):
                                    tzInfo=_tzInfo,
                                    manga_series_order=manga_series_order,
                                    manga_series_parent=manga_series_parent,
-                                   writeRawJSON=self._config.writeRawJSON)
+                                   writeRawJSON=self._config.writeRawJSON,
+                                   stripHTMLTagsFromCaption=self._config.stripHTMLTagsFromCaption)
 
                 if image.imageMode == "ugoira_view":
                     ugoira_meta_url = f"https://www.pixiv.net/ajax/illust/{image_id}/ugoira_meta"
@@ -820,7 +836,8 @@ class PixivBrowser(mechanize.Browser):
                                                       member_id=member_id,
                                                       r18mode=r18mode,
                                                       blt=bookmark_count,
-                                                      type_mode=type_mode)
+                                                      type_mode=type_mode,
+                                                      locale=self._locale)
 
             PixivHelper.print_and_log('info', f'Looping... for {url}')
             response_page = self.getPixivPage(url, returnParsed=False)
@@ -1051,7 +1068,14 @@ class PixivBrowser(mechanize.Browser):
         x_requested_with = f'https://sketch.pixiv.net/@{artist_id}'
 
         PixivHelper.get_logger().debug('Getting sketch artist detail from %s', url)
-        response = self.getPixivSketchPage(url=url, referer=referer, x_requested_with=x_requested_with)
+        response = None
+        try:
+            response = self.getPixivSketchPage(url=url, referer=referer, x_requested_with=x_requested_with)
+        except Exception as ex:
+            if isinstance(ex, urllib.error.HTTPError) and ex.status == 404:
+                raise PixivException(f"No Pixiv Sketch for : {artist_id}", errorCode=PixivException.USER_ID_NOT_EXISTS)
+            else:
+                raise
         self.handleDebugMediumPage(response, artist_id)
         _tzInfo = None
         if self._config.useLocalTimezone:
@@ -1167,6 +1191,36 @@ class PixivBrowser(mechanize.Browser):
         novel_series.parse_series_content(response, current_page)
         return novel_series
 
+    def getFollowedNewIllusts(self, mode="all", current_page=1) -> PixivNewIllustBookmark:
+        # Issue #1028
+        locale = ""
+        if self._locale is not None and len(self._locale) > 0:
+            locale = f"&lang={self._locale}"
+        url = f"https://www.pixiv.net/ajax/follow_latest/illust?p={current_page}&mode={mode}{locale}"
+        response = self.getPixivPage(url, returnParsed=False, enable_cache=True)
+        PixivHelper.get_logger().info(f"Source URL: {url}")
+        pb = PixivNewIllustBookmark(response)
+
+        # Non premium is only limited to 2000 images (100 page old layout, 35 new layout)
+        # Premium user might be limited to 10000 images (5000 page old layout, 167 new layout)
+        pb.isLastPage = False
+        if (self._isPremium and int(current_page) >= 167) or (not self._isPremium and int(current_page) >= 35):
+            pb.isLastPage = True
+
+        return pb
+
+    def getPixivRanking(self, mode, page, date="", content="", filter=None) -> PixivRanking:
+        url = f"https://www.pixiv.net/ranking.php?mode={mode}"
+        if len(date) > 0:
+            url = f"{url}&date={date}"
+        if len(content) > 0:
+            url = f"{url}&content={content}"
+        url = f"{url}&p={page}&format=json"
+
+        response = self.getPixivPage(url, returnParsed=False, enable_cache=True)
+        result = PixivRanking(response, filter)
+        return result
+
 
 def getBrowser(config=None, cookieJar=None):
     global defaultCookieJar
@@ -1223,6 +1277,7 @@ def test():
     print("Access Token = " + auth_token)
     print("Refresh Token = " + refresh_token)
     b._oauth_manager.login()
+    b._config.writeConfig()
 
     if success:
         def test_oauth_get_user_info():

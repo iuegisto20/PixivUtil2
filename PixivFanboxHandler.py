@@ -61,12 +61,14 @@ def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefi
                 try:
                     process_fanbox_post(caller, config, post, artist)
                 except KeyboardInterrupt:
-                    choice = input("Keyboard Interrupt detected, continue to next post (Y/N)").rstrip("\r")
+                    choice = input("Keyboard Interrupt detected, continue to next post? (Y/N)").rstrip("\r")
                     if choice.upper() == 'N':
                         PixivHelper.print_and_log("info", f"FANBOX artist: {artist}, processing aborted")
-                        break
+                        return
                     else:
                         continue
+            else:
+                PixivHelper.print_and_log("info", f"Unsupported post type: {post.imageId} => {post.type}")
             image_count += 1
             PixivHelper.wait(config)
 
@@ -136,7 +138,8 @@ def process_fanbox_post(caller, config, post: PixivModelFanbox.FanboxPost, artis
                                                                          config.overwrite,
                                                                          config.retry,
                                                                          config.backupOldFile,
-                                                                         image=post)
+                                                                         image=post,
+                                                                         download_from=PixivConstant.DOWNLOAD_FANBOX)
                 post_files.append((post.imageId, -1, filename))
                 PixivHelper.get_logger().debug("Download %s result: %s", filename, result)
             else:
@@ -190,7 +193,8 @@ def process_fanbox_post(caller, config, post: PixivModelFanbox.FanboxPost, artis
                                                                          False,  # config.overwrite somehow unable to get remote filesize
                                                                          config.retry,
                                                                          config.backupOldFile,
-                                                                         image=post)
+                                                                         image=post,
+                                                                         download_from=PixivConstant.DOWNLOAD_FANBOX)
                 if result == PixivConstant.PIXIVUTIL_ABORTED:
                     raise KeyboardInterrupt()
                 post_files.append((post.imageId, current_page, filename))

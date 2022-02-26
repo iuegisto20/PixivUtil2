@@ -9,7 +9,7 @@
 
 - Dependent software
   - FFmpeg (https://www.ffmpeg.org/) - used for converting ugoira to video.
-  - Exiv2 (https://exiv2.org/) - used for writing XMP metadata (if enabled).
+  - [VC++ Redistributable](https://visualstudio.microsoft.com/downloads/#microsoft-visual-c-redistributable-for-visual-studio-2019) - Needed for pyexiv2 to write XMP metadata in Windows (if enabled).
 
 # Capabilities:
 - Download by member_id
@@ -93,13 +93,12 @@ Q3. I cannot login to Pixiv!
       1. Open Firefox.
       2. Go to Pixiv website and login, remember to enable [Remember Me]
           check box.
-      3. Right click the page and select View Page Info.
-      4. Click the Security tab.
-      5. Click the View Cookies button.
-      6. Look for Cookie named = PHPSESSID.
-      7. Copy the content value.
-      8. Open config.ini, go to [Authentication] section, paste the value
-          to cookie, set keepsignedin = 1.
+      3. Press F12 to open Developer Tools, and select the Storage tab.
+      4. Click the Cookies and select for the pixiv.net.
+      5. Look for Cookie named = PHPSESSID.
+      6. Copy the content value. https://imgur.com/a/BppHOoQ
+      7. Open config.ini, go to [Authentication] section, paste the value
+         to cookie. https://imgur.com/VB2g3qn
 
 Q4. PixivUtil working from local terminal on Linux box but not working when I
     used SSH with PuTTY!
@@ -394,9 +393,9 @@ Please refer run with `--help` for latest information.
 - proxyaddress
 
   Proxy server address, use this format:
-  - http://<username>:<password>@<proxy_server>:<port> or
-  - socks5://<username>:<password>@<proxy_server>:<port> or
-  - socks4://<username>:<password>@<proxy_server>:<port>
+  - `http://<username>:<password>@<proxy_server>:<port>` or
+  - `socks5://<username>:<password>@<proxy_server>:<port>` or
+  - `socks4://<username>:<password>@<proxy_server>:<port>`
 - useragent
   
   Browser user agent to spoof. You can check it from https://www.whatismybrowser.com/detect/what-is-my-user-agent
@@ -526,6 +525,9 @@ Please refer run with `--help` for latest information.
 - writeUrlInDescription
 
   Write all url found in the image description to a text file. Set to `True` to enable. The list will be saved to to the application folder as url_list_<timestamp>.txt
+- stripHTMLTagsFromCaption
+
+  Remove all HTML tags and their contents from the image caption/description when writing metadata to files. The contents of any links will be lost, so consider enabling writeUrlInDescription to retain them.
 - urlBlacklistRegex
   
   Used to filter out the url in the description using regular expression.

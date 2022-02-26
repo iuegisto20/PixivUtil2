@@ -6,12 +6,17 @@ import os.path
 import shutil
 import sys
 import time
+import re
 
 from colorama import Fore, Style
 
 import PixivHelper
 
 script_path = PixivHelper.module_path()
+
+
+def stringNotEmpty(value):
+    return value is not None and len(value) > 0
 
 
 class ConfigItem():
@@ -65,9 +70,8 @@ class PixivConfig():
         ConfigItem("Network", "enableSSLVerification", True),
 
         ConfigItem("Debug", "logLevel", "DEBUG",
-                   followup=lambda x: x.upper(),
-                   restriction=lambda x: x.upper() in ['CRITICAL', 'ERROR', 'WARN', 'WARNING', 'INFO', 'DEBUG',
-                                                       'NOTSET']),
+                   followup=str.upper,
+                   restriction=lambda x: x.upper() in ['CRITICAL', 'ERROR', 'WARN', 'WARNING', 'INFO', 'DEBUG', 'NOTSET']),
         ConfigItem("Debug", "enableDump", True),
         ConfigItem("Debug", "skipDumpFilter", ""),
         ConfigItem("Debug", "dumpMediumPage", False),
@@ -96,6 +100,7 @@ class PixivConfig():
         ConfigItem("Settings", "writeImageXMPPerImage", False),
         ConfigItem("Settings", "verifyImage", False),
         ConfigItem("Settings", "writeUrlInDescription", False),
+        ConfigItem("Settings", "stripHTMLTagsFromCaption", False),
         ConfigItem("Settings", "urlBlacklistRegex", ""),
         ConfigItem("Settings", "dbPath", ""),
         ConfigItem("Settings", "setLastModified", True),
@@ -104,26 +109,26 @@ class PixivConfig():
         ConfigItem("Filename",
                    "filenameFormat",
                    "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename",
                    "filenameMangaFormat",
                    "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0 and (x.find("%urlFilename%") >= 0 or (x.find('%page_index%') >= 0 or x.find('%page_number%') >= 0)),
+                   restriction=lambda x: stringNotEmpty(x) and (x.find("%urlFilename%") >= 0 or (x.find('%page_index%') >= 0 or x.find('%page_number%') >= 0)),
                    error_message="At least %urlFilename%, %page_index%, or %page_number% is required in"),
         ConfigItem("Filename", "filenameInfoFormat",
                    "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename", "filenameMangaInfoFormat",
                    "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename", "filenameSeriesJSON",
                    "%artist% (%member_id%)" + os.sep + "%manga_series_id% - %manga_series_title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename", "filenameFormatSketch", "%artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename", "filenameFormatNovel",
                    "%artist% (%member_id%)" + os.sep + "%manga_series_id% %manga_series_order% %urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("Filename", "avatarNameFormat", ""),
         ConfigItem("Filename", "backgroundNameFormat", ""),
         ConfigItem("Filename", "tagsSeparator", ", "),
@@ -133,6 +138,7 @@ class PixivConfig():
         ConfigItem("Filename", "useTranslatedTag", False),
         ConfigItem("Filename", "tagTranslationLocale", "en"),
         ConfigItem("Filename", "customBadChars", "", followup=PixivHelper.parse_custom_sanitizer),
+        ConfigItem("Filename", "customCleanUpRe", "", followup=PixivHelper.parse_custom_clean_up_re),
 
         ConfigItem("Authentication", "username", ""),
         ConfigItem("Authentication", "password", ""),
@@ -147,14 +153,14 @@ class PixivConfig():
 
         ConfigItem("FANBOX", "filenameFormatFanboxCover",
                    "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("FANBOX", "filenameFormatFanboxContent",
                    "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0 and (x.find("%urlFilename%") >= 0 or (x.find('%page_index%') >= 0 or x.find('%page_number%') >= 0)),
+                   restriction=lambda x: stringNotEmpty(x) and (x.find("%urlFilename%") >= 0 or (x.find('%page_index%') >= 0 or x.find('%page_number%') >= 0)),
                    error_message="At least %urlFilename%, %page_index%, or %page_number% is required in"),
         ConfigItem("FANBOX", "filenameFormatFanboxInfo",
                    "FANBOX %artist% (%member_id%)" + os.sep + "%urlFilename% - %title%",
-                   restriction=lambda x: x is not None and len(x) > 0),
+                   restriction=stringNotEmpty),
         ConfigItem("FANBOX", "writeHtml", False),
         ConfigItem("FANBOX", "minTextLengthForNonArticle", 45),
         ConfigItem("FANBOX", "minImageCountForNonArticle", 3),
@@ -164,15 +170,16 @@ class PixivConfig():
         ConfigItem("FANBOX", "checkDBProcessHistory", False),
         ConfigItem("FANBOX", "listPathFanbox", "listfanbox.txt"),
 
-        ConfigItem("FFmpeg", "ffmpeg", "ffmpeg"),
+        ConfigItem("FFmpeg", "ffmpeg", "ffmpeg.exe"),
         ConfigItem("FFmpeg", "ffmpegCodec", "libvpx-vp9"),
         ConfigItem("FFmpeg", "ffmpegExt", "webm"),
-        ConfigItem("FFmpeg", "ffmpegParam", "-lossless 1 -vsync 2 -r 999 -pix_fmt yuv420p"),
+        ConfigItem("FFmpeg", "ffmpegParam", "-row-mt 1 -deadline good -crf 20 -vsync 2 -r 999 -pix_fmt yuv420p"),
         ConfigItem("FFmpeg", "webpCodec", "libwebp"),
-        ConfigItem("FFmpeg", "webpParam", "-lossless 0 -q:v 90 -loop 0 -vsync 2 -r 999"),
+        ConfigItem("FFmpeg", "webpParam", "-row-mt 1 -lossless 0 -q:v 90 -loop 0 -vsync 2 -r 999"),
         ConfigItem("FFmpeg", "gifParam",
                    "-filter_complex \"[0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle\""),
         ConfigItem("FFmpeg", "apngParam", "-vf \"setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6\" -plays 0"),
+        ConfigItem("FFmpeg", "verboseOutput", False),
 
         ConfigItem("Ugoira", "writeUgoiraInfo", False),
         ConfigItem("Ugoira", "createUgoira", False),
@@ -203,12 +210,23 @@ class PixivConfig():
         ConfigItem("DownloadControl", "postProcessingCmd", ""),
     ]
 
-    proxy = {"http": "", "https": "", }
-
     def __init__(self):
         for item in self.__items:
             setattr(self, item.option, item.process_value(item.default))
-        self.proxy = {'http': self.proxyAddress, 'https': self.proxyAddress}
+
+    @property
+    def proxy(self):
+        value = getattr(self, "proxyAddress", None)
+        if not value:
+            return None
+        match = re.match(r"^(?:(https?|socks[45])://)?([\w.-]+)(:\d+)?$", value)
+        if not match:
+            return None
+        scheme, netloc, port = match.groups()
+        scheme = scheme or "http"
+        value = f"{scheme}://{netloc}{port}"
+        return {"http": value, "https": value}
+
 
     def loadConfig(self, path=None):
         if path is not None:
@@ -272,8 +290,6 @@ class PixivConfig():
             # assign the value to the actual configuration attribute
             self.__setattr__(item.option, value)
 
-        self.proxy = {'http': self.proxyAddress, 'https': self.proxyAddress}
-
         if haveError:
             print(Fore.RED + Style.BRIGHT + 'Configurations with invalid value are set to default value.' + Style.RESET_ALL)
             self.writeConfig(error=True, path=self.configFileLocation)
@@ -285,6 +301,7 @@ class PixivConfig():
         '''Backup old config if exist and write updated config.ini'''
         print('Writing config file...', end=' ')
         config = configparser.RawConfigParser()
+        config.optionxform = lambda option: option
 
         groups = itertools.groupby(PixivConfig.__items, lambda x: x.section)
 
@@ -333,3 +350,11 @@ class PixivConfig():
                 for item in g:
                     print(f" - {item.option:{25}} = {self.__getattribute__(item.option)}")
         print('')
+
+
+if __name__ == '__main__':
+    cfg = PixivConfig()
+    cfg.loadConfig("./config.ini")
+    test_filename = "C:\\haha\\hehe\\ ()\\filename.jpg"
+    print(f"[{cfg.customCleanUpRe}]")
+    print(f"{test_filename} ==> {re.sub(cfg.customCleanUpRe, '', test_filename)}")
