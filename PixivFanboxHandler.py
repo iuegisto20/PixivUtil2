@@ -13,7 +13,7 @@ import PixivArtistHandler
 
 def process_fanbox_artist_by_id(caller, config, artist_id, end_page, title_prefix=""):
     config.loadConfig(path=caller.configfile)
-    br = PixivBrowserFactory.getBrowser()
+    br: PixivBrowserFactory.PixivBrowser = PixivBrowserFactory.getBrowser()
 
     caller.set_console_title(title_prefix)
     try:
@@ -195,7 +195,7 @@ def process_fanbox_post(caller, config, post: PixivModelFanbox.FanboxPost, artis
                                                                          config.backupOldFile,
                                                                          image=post,
                                                                          download_from=PixivConstant.DOWNLOAD_FANBOX)
-                if result == PixivConstant.PIXIVUTIL_ABORTED:
+                if result == PixivConstant.PIXIVUTIL_KEYBOARD_INTERRUPT:
                     raise KeyboardInterrupt()
                 post_files.append((post.imageId, current_page, filename))
 
