@@ -77,6 +77,7 @@ class PixivConfig():
         ConfigItem("Debug", "dumpMediumPage", False),
         ConfigItem("Debug", "dumpTagSearchPage", False),
         ConfigItem("Debug", "debugHttp", False),
+        ConfigItem("Debug", "disableLog", False),
 
         ConfigItem("IrfanView", "IrfanViewPath", r"C:\Program Files\IrfanView", followup=os.path.expanduser),
         ConfigItem("IrfanView", "startIrfanView", False),
@@ -227,7 +228,6 @@ class PixivConfig():
         scheme = scheme or "http"
         value = f"{scheme}://{netloc}{port}"
         return {"http": value, "https": value}
-
 
     def loadConfig(self, path=None):
         if path is not None:
