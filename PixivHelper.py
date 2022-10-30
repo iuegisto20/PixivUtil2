@@ -32,9 +32,9 @@ import mechanize
 from colorama import Fore, Style
 from PIL import Image, ImageFile
 
+import PixivArtist
 import PixivConstant
 from PixivException import PixivException
-import PixivArtist
 from PixivImage import PixivImage
 from PixivModelFanbox import FanboxArtist, FanboxPost
 
@@ -409,6 +409,8 @@ def set_console_title(title):
 
 
 def clearScreen():
+    if _config.disableScreenClear:  # Implement #1162
+        return
     if platform.system() == "Windows":
         subprocess.call('cls', shell=True)
     else:
@@ -760,15 +762,15 @@ def download_image(url, filename, res, file_size, overwrite):
     try:
         makeSubdirs(filename)
         save = open(filename + '.pixiv', 'wb+', 4096)
-    except IOError:
-        print_and_log('error', u"Error at download_image(): Cannot save {0} to {1}: {2}".format(url, filename, sys.exc_info()))
+    except IOError as ex:
+        print_and_log('error', f"Error at download_image(): Cannot save {url} to {filename}: {sys.exc_info()}", exception=ex)
 
         # get the actual server filename and use it as the filename for saving to current app dir
         filename = os.path.split(url)[1]
         filename = filename.split("?")[0]
         filename = sanitize_filename(filename)
         save = open(filename + '.pixiv', 'wb+', 4096)
-        print_and_log('info', u'File is saved to ' + filename)
+        print_and_log('info', f'File is saved to {filename}')
 
     # download the file
     prev = 0
@@ -783,12 +785,12 @@ def download_image(url, filename, res, file_size, overwrite):
             # check if downloaded file is complete
             if file_size > 0 and curr == file_size:
                 total_time = (datetime.now() - start_time).total_seconds()
-                print_and_log(None, f' Completed in {total_time}s ({speed_in_str(file_size, total_time)})')
+                print_and_log(None, f' Completed in {Fore.CYAN}{total_time}{Style.RESET_ALL}s ({Fore.RED}{speed_in_str(file_size, total_time)}{Style.RESET_ALL})')
                 break
 
             elif curr == prev:  # no file size info
                 total_time = (datetime.now() - start_time).total_seconds()
-                print_and_log(None, f' Completed in {total_time}s ({speed_in_str(curr, total_time)})')
+                print_and_log(None, f' Completed in {Fore.CYAN}{total_time}{Style.RESET_ALL}s ({Fore.RED}{speed_in_str(curr, total_time)}{Style.RESET_ALL})')
                 break
 
             prev = curr
@@ -800,15 +802,15 @@ def download_image(url, filename, res, file_size, overwrite):
         completed = True
         if file_size > 0 and curr < file_size:
             # File size is known and downloaded file is smaller
-            print_and_log('error', u'Downloaded file incomplete! {0:9} of {1:9} Bytes'.format(curr, file_size))
-            print_and_log('error', u'Filename = ' + filename)
-            print_and_log('error', u'URL      = {0}'.format(url))
+            print_and_log('error', f'Downloaded file incomplete! {curr:9} of {file_size:9} Bytes')
+            print_and_log('error', f'Filename = {filename}')
+            print_and_log('error', f'URL      = {url}')
             completed = False
         elif curr == 0:
             # No data received.
-            print_and_log('error', u'No data received!')
-            print_and_log('error', u'Filename = ' + filename)
-            print_and_log('error', u'URL      = {0}'.format(url))
+            print_and_log('error', 'No data received!')
+            print_and_log('error', f'Filename = {filename}')
+            print_and_log('error', f'URL      = {url}')
             completed = False
 
         if completed:
@@ -826,17 +828,19 @@ def download_image(url, filename, res, file_size, overwrite):
 def print_progress(curr, total, max_msg_length=80):
     # [12345678901234567890]
     # [████████------------]
-    animBarLen = 20
+    # [━╸                  ]
+    animBarLen = 40
 
     if total > 0:
         complete = int((curr * animBarLen) / total)
         remainder = (((curr * animBarLen) % total) / total)
         use_half_block = (remainder <= 0.5) and remainder > 0.1
+        color = f"{Fore.GREEN}{Style.BRIGHT}" if complete == animBarLen else Fore.RED
         if use_half_block:
-            with_half_block = f"{'█' * (complete - 1)}▌"
-            msg = f"\r[{with_half_block:{animBarLen}}] {size_in_str(curr)} of {size_in_str(total)}"
+            with_half_block = f"{'━' * (complete - 1)}╸"
+            msg = f"\r{color}[{with_half_block:{animBarLen}} ]{Style.RESET_ALL} {size_in_str(curr)} of {size_in_str(total)}"
         else:
-            msg = f"\r[{'█' * complete:{animBarLen}}] {size_in_str(curr)} of {size_in_str(total)}"
+            msg = f"\r{color}[{'━' * complete:{animBarLen}} ]{Style.RESET_ALL} {size_in_str(curr)} of {size_in_str(total)}"
 
     else:
         # indeterminite
@@ -845,7 +849,7 @@ def print_progress(curr, total, max_msg_length=80):
         # Use nested replacement field to specify the precision value. This limits the maximum print
         # length of the progress bar. As pos changes, the starting print position of the anim string
         # also changes, thus producing the scrolling effect.
-        msg = f'\r[{anim[animBarLen + 3 - pos:]:.{animBarLen}}] {size_in_str(curr)}'
+        msg = f'\r{Fore.YELLOW}[{anim[animBarLen + 3 - pos:]:.{animBarLen}}]{Style.RESET_ALL} {size_in_str(curr)}'
 
     curr_msg_length = len(msg)
     print_and_log(None, msg.ljust(max_msg_length, " "), newline=False)
@@ -963,7 +967,7 @@ def ugoira2gif(ugoira_file, exportname, fmt='gif', image=None):
     print_and_log('info', 'Processing ugoira to animated gif...')
     # Issue #802 use ffmpeg to convert to gif
     if len(_config.gifParam) == 0:
-        _config.gifParam = "-filter_complex \"[0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle\""
+        _config.gifParam = "-filter_complex [0:v]split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
     convert_ugoira(ugoira_file,
                    exportname,
                    ffmpeg=_config.ffmpeg,
@@ -977,7 +981,7 @@ def ugoira2apng(ugoira_file, exportname, image=None):
     print_and_log('info', 'Processing ugoira to apng...')
     # fix #796 convert apng using ffmpeg
     if len(_config.apngParam) == 0:
-        _config.apngParam = "-vf \"setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6\" -plays 0"
+        _config.apngParam = "-vf setpts=PTS-STARTPTS,hqdn3d=1.5:1.5:6:6 -plays 0"
     convert_ugoira(ugoira_file,
                    exportname,
                    ffmpeg=_config.ffmpeg,
@@ -1024,11 +1028,11 @@ def convert_ugoira(ugoira_file, exportname, ffmpeg, codec, param, extension, ima
         name = '.'.join(ugoira_file.split('.')[:-1])
         exportname = f"{os.path.basename(name)}.{extension}"
 
-    tempname = d + "/temp." + extension
+    tempname = d + os.sep + "temp." + extension
 
-    cmd = f"{ffmpeg} -y -safe 0 -i \"{d}/i.ffconcat\" -c:v {codec} {param} \"{tempname}\""
+    cmd = f"{ffmpeg} -y -safe 0 -i {d}{os.sep}i.ffconcat -c:v {codec} {param} {tempname}"
     if codec is None:
-        cmd = f"{ffmpeg} -y -safe 0 -i \"{d}/i.ffconcat\" {param} \"{tempname}\""
+        cmd = f"{ffmpeg} -y -safe 0 -i {d}{os.sep}i.ffconcat {param} {tempname}"
 
     try:
         frames = {}
@@ -1037,7 +1041,7 @@ def convert_ugoira(ugoira_file, exportname, ffmpeg, codec, param, extension, ima
         with zipfile.ZipFile(ugoira_file) as f:
             f.extractall(d)
 
-        with open(d + "/animation.json") as f:
+        with open(d + f"{os.sep}animation.json") as f:
             frames = json.load(f)['frames']
 
         for i in frames:
@@ -1047,13 +1051,14 @@ def convert_ugoira(ugoira_file, exportname, ffmpeg, codec, param, extension, ima
         # this will increase the frame count, but will fix the last frame timestamp issue.
         ffconcat += "file " + frames[-1]['file'] + '\n'
 
-        with open(d + "/i.ffconcat", "w") as f:
+        with open(d + f"{os.sep}i.ffconcat", "w") as f:
             f.write(ffconcat)
 
         check_image_encoding(d)
 
-        ffmpeg_args = shlex.split(cmd)
+        ffmpeg_args = shlex.split(cmd, posix=False)
         get_logger().info(f"[convert_ugoira()] running with cmd: {cmd}")
+        get_logger().info(f"[convert_ugoira()] running with ffmpeg_args: {ffmpeg_args}")
         p = subprocess.Popen(ffmpeg_args, stderr=subprocess.PIPE)
 
         # progress report
@@ -1083,12 +1088,10 @@ def convert_ugoira(ugoira_file, exportname, ffmpeg, codec, param, extension, ima
 
 def create_temp_dir(prefix: str = None) -> str:
     d = tempfile.mkdtemp(prefix=prefix)
-    d = d.replace(os.sep, '/')
 
     # Issue #1035
     if not os.path.exists(d):
         new_temp = os.path.abspath(f"file_{int(datetime.now().timestamp())}")
-        new_temp = new_temp.replace(os.sep, '/')
         os.makedirs(new_temp)
         print_and_log("warn", f"Cannot create temp folder at {d}, using current folder as the temp location => {new_temp}")
         d = new_temp
@@ -1115,7 +1118,8 @@ def ffmpeg_progress_report(p: subprocess.Popen) -> subprocess.Popen:
                     or chatter.lower().find("invalid") > 0 \
                     or chatter.lower().find("trailing options") > 0 \
                     or chatter.lower().find("cannot") > 0 \
-                    or chatter.lower().find("can't") > 0:
+                    or chatter.lower().find("can't") > 0 \
+                    or chatter.lower().find("no ") > 0:
                 print_and_log("error", chatter.strip())
             chatter = ""
         if len(buff) == 0:
@@ -1135,7 +1139,7 @@ def check_image_encoding(directory: str) -> None:
 
     # Append every images to their corresponding number of bit depth in a dictionnary
     for filename in os.listdir(directory):
-        f = os.path.join(directory, filename)
+        f = os.path.join(directory + os.sep, filename)
         # checking if it is a file
         if ((os.path.isfile(f)) and (f.endswith((".jpg", ".png")))):
             fp = None
@@ -1143,9 +1147,10 @@ def check_image_encoding(directory: str) -> None:
                 fp = open(f, "rb")
                 # Fix Issue #269, refer to https://stackoverflow.com/a/42682508
                 ImageFile.LOAD_TRUNCATED_IMAGES = True
-                im = Image.open(fp)
-                nb_components = len(im.getbands())
-                dict_of_components[nb_components].append(f)
+                with Image.open(fp) as im:
+                    nb_components = len(im.getbands())
+                    dict_of_components[nb_components].append(f)
+                    im.close()
             except BaseException:
                 if fp is not None:
                     fp.close()
@@ -1180,7 +1185,7 @@ def re_encode_image(nb_channel: int, im_path: str) -> None:
     # Fix #1126
     cmd = f"{_config.ffmpeg} -i {im_path} -pix_fmt {pix_fmt_nb_components[nb_channel]} {temp_name}"
 
-    ffmpeg_args = shlex.split(cmd)
+    ffmpeg_args = shlex.split(cmd, posix=False)
     get_logger().info(f"[re_encode_image()] running with cmd: {cmd}")
     p = subprocess.Popen(ffmpeg_args, stderr=subprocess.PIPE)
 

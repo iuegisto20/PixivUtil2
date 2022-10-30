@@ -226,6 +226,9 @@ def download_image(caller,
                         check_result = None
                         try:
                             check_result = zf.testzip()
+                        # Issue #1165
+                        except NotImplementedError as ne:
+                            PixivHelper.print_and_log('warn', f' {ne}')
                         except RuntimeError as e:
                             if 'encrypted' in str(e):
                                 PixivHelper.print_and_log('info', ' archive is encrypted, cannot verify.')
@@ -246,9 +249,17 @@ def download_image(caller,
                 else:
                     PixivHelper.print_and_log('info', ' done.')
 
+                # codecs.open is stateless, so if platform_encoding == utf-8-sig each new line starts from utf-8-sig
+                # this is bad and I feel bad
+
+                if os.path.isfile(caller.dfilename):
+                    dfile_encoding = 'utf-8'
+                else:
+                    dfile_encoding = caller.platform_encoding
+
                 # write to downloaded lists
                 if caller.start_iv or config.createDownloadLists:
-                    dfile = codecs.open(caller.dfilename, 'a+', encoding=caller.platform_encoding)
+                    dfile = codecs.open(caller.dfilename, 'a+', encoding=dfile_encoding)
                     dfile.write(filename_save + "\n")
                     dfile.close()
 

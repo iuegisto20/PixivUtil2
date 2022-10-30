@@ -747,9 +747,9 @@ Available for filenameFormat and filenameMangaFormat:
 -> %page_big%
    for manga mode, add big in the filename.
 -> %page_index%
-   for manga mode, add page number with 0-index.
+   for manga mode, add page number with 0-index. It will auto-pad with 0 based on the total count.
 -> %page_number%
-   for manga mode, add page number with 1-index.
+   for manga mode, add page number with 1-index. It will auto-pad with 0 based on the total count.
 -> %bookmark%
    for bookmark mode, add 'Bookmarks' string.
 -> %original_member_id%
@@ -938,6 +938,13 @@ http://www.pixiv.net/member_illust.php?id=123456
 %pattern<unicode>([\U0001d400-\U0001ffff])%%pattern<1>(_+)%%replace<1>(_)%
 ```
 
+# Development
+PixivUtil2 posesses robust test suite. To run it, one needs pytest suite:
+```
+pip install --user pytest
+
+pytest -v ./test_*
+```
 
 # Credits/Contributor
 - Nandaka (Main Developer) - https://nandaka.devnull.zone

@@ -295,32 +295,40 @@ class PixivBrowser(mechanize.Browser):
         """ Load cookie to the Browser instance """
         ck = None
 
-        if "pixiv.net" in domain:
-            ck = http.cookiejar.Cookie(version=0, name='PHPSESSID', value=cookie_value, port=None,
-                                       port_specified=False, domain='pixiv.net', domain_specified=False,
-                                       domain_initial_dot=False, path='/', path_specified=True,
-                                       secure=False, expires=None, discard=True, comment=None,
-                                       comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
-        elif "fanbox.cc" in domain:
-            ck = http.cookiejar.Cookie(version=0, name='FANBOXSESSID', value=cookie_value, port=None,
-                                       port_specified=False, domain='fanbox.cc', domain_specified=False,
-                                       domain_initial_dot=False, path='/', path_specified=True,
-                                       secure=False, expires=None, discard=True, comment=None,
-                                       comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
-        if ck is not None:
-            self.addCookie(ck)
+        # full cookies string
+        if cookie_value.find("PHPSESSID=") > -1:
+            cookies = cookie_value.split(";")
+            for cookie in cookies:
+                temp = cookie.split("=")
+                name = temp[0].strip()
+                value = temp[1] if len(temp) > 1 else ""
+                domain = ".pixiv.net"
+                if name in ("adr_id", "categorized_tags", "first_visit_datetime_pc", "tags_sended", "yuid_b"):
+                    domain = "www.pixiv.net"
+                elif name in ("login_ever"):
+                    domain = ".www.pixiv.net"
+                ck = http.cookiejar.Cookie(version=0, name=name, value=value, port=None,
+                                        port_specified=False, domain=domain, domain_specified=False,
+                                        domain_initial_dot=False, path='/', path_specified=True,
+                                        secure=False, expires=None, discard=True, comment=None,
+                                        comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
+                self.addCookie(ck)
 
-    #        cookies = cookie_value.split(";")
-    #        for cookie in cookies:
-    #            temp = cookie.split("=")
-    #            name = temp[0].strip()
-    #            value= temp[1] if len(temp) > 1 else ""
-    #            ck = cookielib.Cookie(version=0, name=name, value=value, port=None,
-    #                                  port_specified=False, domain='pixiv.net', domain_specified=False,
-    #                                  domain_initial_dot=False, path='/', path_specified=True,
-    #                                  secure=False, expires=None, discard=True, comment=None,
-    #                                  comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
-    #            self.addCookie(ck)
+        else:
+            if "pixiv.net" in domain:
+                ck = http.cookiejar.Cookie(version=0, name='PHPSESSID', value=cookie_value, port=None,
+                                        port_specified=False, domain='pixiv.net', domain_specified=False,
+                                        domain_initial_dot=False, path='/', path_specified=True,
+                                        secure=False, expires=None, discard=True, comment=None,
+                                        comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
+            elif "fanbox.cc" in domain:
+                ck = http.cookiejar.Cookie(version=0, name='FANBOXSESSID', value=cookie_value, port=None,
+                                        port_specified=False, domain='fanbox.cc', domain_specified=False,
+                                        domain_initial_dot=False, path='/', path_specified=True,
+                                        secure=False, expires=None, discard=True, comment=None,
+                                        comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
+            if ck is not None:
+                self.addCookie(ck)
 
     def _getInitConfig(self, page):
         init_config = page.find('input', attrs={'id': 'init-config'})
@@ -856,7 +864,7 @@ class PixivBrowser(mechanize.Browser):
                     result.parseTags(response_page, tags, current_page)
 
                     # parse additional information
-                    if use_bookmark_data:
+                    if 0:  # Disabled, see #1159 #1160
                         idx = 0
                         print("Retrieving bookmark information...", end=' ')
                         for image in result.itemList:
@@ -881,6 +889,7 @@ class PixivBrowser(mechanize.Browser):
                                 image_info_js["body"]["bookmarkCount"])
                             image.imageResponse = int(
                                 image_info_js["body"]["responseCount"])
+                            PixivHelper.wait(result, self._config)
                     print("")
                 except BaseException:
                     PixivHelper.dump_html(f"Dump for SearchTags {tags}.html", response_page)

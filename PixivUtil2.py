@@ -1143,6 +1143,16 @@ def menu_download_by_rank(op_is_valid, args, options, valid_modes=None):
                 break
             else:
                 print("Invalid Content Type.")
+        while True:
+            print(f"Specify the ranking date, valid type is YYYYMMDD (default: today)")
+            date = input('Date: ').rstrip("\r").lower()
+            try:
+                if date != '':
+                    datetime.datetime.strptime(date, "%Y%m%d")
+            except Exception as ex:
+                PixivHelper.print_and_log("error", f"Invalid format for ranking date: {date}.")
+            else:
+                break
         (start_page, end_page) = PixivHelper.get_start_and_end_number()
 
     PixivRankingHandler.process_ranking(sys.modules[__name__],
@@ -1442,6 +1452,7 @@ def main_loop(ewd, op_is_valid, selection, np_is_valid_local, args, options):
             elif selection == 'u':
                 menu_ugoira_reencode(op_is_valid, args, options)
             elif selection == 'd':
+                PixivHelper.clearScreen()
                 __dbManager__.main()
             elif selection == 'r':
                 menu_reload_config()
@@ -1677,7 +1688,7 @@ def main():
 
             import shlex
             cmd = f"{__config__.ffmpeg} -encoders"
-            ffmpeg_args = shlex.split(cmd)
+            ffmpeg_args = shlex.split(cmd, posix=False)
             try:
                 p = subprocess.run(ffmpeg_args, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, check=True)
                 buff = p.stdout
